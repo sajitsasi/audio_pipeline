@@ -1,0 +1,8 @@
+numpy
+transformers
+sentence-transformers
+torch
+librosa
+python-dotenv
+scikit-learn
+matplotlib
