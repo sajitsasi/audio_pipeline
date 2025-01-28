@@ -1,0 +1,14 @@
+[
+    {
+        "Cluster Label": "police association outreach",
+        "Category": "legitimate"
+    },
+    {
+        "Cluster Label": "IRS tax debt",
+        "Category": "scam"
+    },
+    {
+        "Cluster Label": "bank account access",
+        "Category": "suspicious"
+    }
+]

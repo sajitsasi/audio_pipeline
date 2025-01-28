@@ -18,6 +18,7 @@ import termios
 import sys
 import platform
 import multiprocessing
+from tqdm import tqdm
 
 if platform.system() == "Darwin":
     multiprocessing.set_start_method("fork", force=True)
@@ -56,8 +57,7 @@ def setup_logging():
         level=logging.INFO,
         format='%(asctime)s [%(levelname)s]: %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
+            logging.FileHandler(log_file)
         ]
     )
     return logging.getLogger()
@@ -286,7 +286,7 @@ def process_directory(directory, max_workers=4):
             executor = exec
             futures = {executor.submit(process_audio_file, path): path for path in all_files}
             
-            for future in as_completed(futures):
+            for future in tqdm(as_completed(futures), total=total_files, desc="Processing files"):
                 if shutdown_flag:
                     logger.info("Graceful shutdown initiated. Stopping processing...")
                     break

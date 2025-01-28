@@ -39,6 +39,13 @@ The scripts require environment variables to run properly. Use the provided `sam
 
 2. Edit the `.env` file to configure any necessary values.
 
+3. Copy the `sample_cluster_label_categories.json` file to create a `cluster_label_categories.json` file:
+   ```bash
+   cp sample_cluster_label_categories.json cluster_label_categories.json
+   ```
+
+4. Edit the `sample_cluster_label_categories.json` file to configure any necessary values.
+
 ## Scripts Overview
 
 ### 1. `audio_pipeline.py`
@@ -60,6 +67,17 @@ This script performs clustering on audio embeddings:
 #### How to Run:
 ```bash
 python cluster_audio.py
+```
+
+### 3. `llm_label.py`
+This script labels the calls by sending the transcript of the call to OpenAI
+- Loads clustered data from the [previous step](#2-cluster_audiopy). The name of the file must be defined in the `.env` file as `CLUSTERED_AUDIO_FILE`
+- Loads categories defined in the `.env` file. This is loaded from `CLUSTER_LABEL_DEFINITION_FILE`. 
+- Writes the labelled data to `LABELLED_AUDIO_FILE` defined in `.env`
+
+#### How to Run:
+```bash
+python llm_label.py
 ```
 
 ## License

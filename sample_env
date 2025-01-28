@@ -2,6 +2,10 @@
 ELASTIC_CLOUD_ID=<elastic_cloud_id>
 ELASTIC_API_KEY=<elastic_api_key>
 
+# When writing to Elastic local cluster
+ELASTIC_USERNAME=<elastic_username>
+ELASTIC_PASSWORD=<elastic_password>
+
 # Directory from which WAV files will be read
 WAV_FILE_PATH=<location_of_wav_files>
 
@@ -10,9 +14,12 @@ PROCESSED_AUDIO_FLE=<location_of_processed_audio_file>
 # This is the file where cluster_audio.py will output to in JSON format
 CLUSTERED_AUDIO_FILE=<location_of_clustered_data_file>
 
-# When writing to Elastic local cluster
-ELASTIC_USERNAME=<elastic_username>
-ELASTIC_PASSWORD=<elastic_password>
-
-# Needed if you want LLM to classify your data
+# Files needed by llm_label.py
+# 1. Needed if you want LLM to classify your data
 OPENAI_API_KEY=<openai_api_key_for_llm_classification>
+# 2. Optional - only needed when talking to a proxy or another LLM that is OpenAI compatible
+OPENAI_API_BASE=<openai_compatible_base_api_url>
+# 3. File containing cluster label definitions to send to LLM to label
+CLUSTER_LABEL_DEFINITION_FILE=<file_name>
+# 4. File to write the output of the labelling from LLM
+LABELLED_AUDIO_FILE=<file_name>
