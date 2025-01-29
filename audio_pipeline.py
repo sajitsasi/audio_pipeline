@@ -134,22 +134,24 @@ def is_valid_transcription(transcription):
     return has_words, cleaned_text
 
 def extract_metadata(filename):
+
+    metadata = {
+        "src_number": "0",
+        "dst_number": "0",
+        "call_time": "",
+        "is_us_number": False,
+        "file_name": os.path.basename(filename)
+    }
     pattern = r"(?P<src_number>\+\d+)_(?P<dst_number>\+\d+)_(?P<epoch>\d+)\.wav"
     match = re.match(pattern, filename)
     if match:
-        src_number = match.group("src_number")
-        dst_number = match.group("dst_number")
-        call_time = datetime.fromtimestamp(int(match.group("epoch")) / 1e6)
-        is_us_number = src_number.startswith("+1") and len(src_number) == 12
-        return {
-            "file_name": os.path.basename(filename),
-            "src_number": src_number,
-            "dst_number": dst_number,
-            "call_time": call_time.isoformat(),
-            "is_us_number": is_us_number
-        }
-    logger.warning(f"Metadata extraction failed for {filename}")
-    return None
+        metadata["src_number"]   = match.group("src_number")
+        metadata["dst_number"]   = match.group("dst_number")
+        metadata["call_time"]    = datetime.fromtimestamp(int(match.group("epoch")) / 1e6).isoformat()
+        metadata["is_us_number"] = metadata["src_number"].startswith("+1") and len(metadata["src_number"]) == 12
+    else:
+        metadata["call_time"] = datetime.fromtimestamp(os.path.getctime(os.path.basename(filename))).isoformat()
+    return metadata
 
 def preprocess_audio(file_path):
     try:
@@ -331,8 +333,7 @@ if __name__ == "__main__":
     try:
         load_dotenv()
         input_directory = os.getenv('WAV_FILE_PATH')
-        output_dir = os.getenv('OUTPUT_DIR')
-        output_file = f"{output_dir}/processed_audio.json"
+        output_file = os.getenv('PROCESSED_AUDIO_FILE')
 
         logger.info(f"Starting processing with input directory: {input_directory}")
         results = process_directory(input_directory)
