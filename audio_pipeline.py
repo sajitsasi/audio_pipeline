@@ -70,11 +70,18 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 # Load models globally for efficiency
 try:
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+    logger.info(f"Using device: {device}")
     feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained("facebook/wav2vec2-large-xlsr-53")
     wav2vec_model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-large-xlsr-53")
     whisper_processor = WhisperProcessor.from_pretrained("openai/whisper-base.en")
-    whisper_model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base.en")
-    transcript_model = SentenceTransformer("all-MiniLM-L6-v2")
+    whisper_model = WhisperForConditionalGeneration.from_pretrained("openai/whisper-base.en").to(device)
+    transcript_model = SentenceTransformer("all-MiniLM-L6-v2", device="cuda" if torch.cuda.is_available() else "cpu") 
 except Exception as e:
     logger.error(f"Failed to load models: {e}")
     sys.exit(1)
@@ -334,9 +341,10 @@ if __name__ == "__main__":
         load_dotenv()
         input_directory = os.getenv('WAV_FILE_PATH')
         output_file = os.getenv('PROCESSED_AUDIO_FILE')
+        max_workers = int(os.getenv('MAX_WORKERS', 4))
 
         logger.info(f"Starting processing with input directory: {input_directory}")
-        results = process_directory(input_directory)
+        results = process_directory(input_directory, max_workers=max_workers)
 
         if results:  # Only save results if we have any
             summary = {

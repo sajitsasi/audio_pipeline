@@ -1,3 +1,5 @@
+# Max concurrent workers
+MAX_WORKERS=4
 # When writing to Elastic Cloud
 ELASTIC_CLOUD_ID=<elastic_cloud_id>
 ELASTIC_API_KEY=<elastic_api_key>

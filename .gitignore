@@ -130,6 +130,7 @@ celerybeat.pid
 # Environments
 .env
 .venv
+cluster_label_categories.json
 env/
 venv/
 ENV/
