@@ -9,6 +9,10 @@ ELASTIC_USERNAME=<elastic_username>
 ELASTIC_PASSWORD=<elastic_password>
 
 # Directory from which WAV files will be read
+# This can be an S3 Bucket OR a local directory, if S3_BUCKET is defined,
+# WAV_FILE_PATH is ignored
+S3_BUCKET=<s3_bucket_name>
+S3_PREFIX=<s3_prefix>
 WAV_FILE_PATH=<location_of_wav_files>
 
 # This is the file where audio_pipeline.py will output to in JSON format

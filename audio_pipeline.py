@@ -20,6 +20,9 @@ import platform
 import multiprocessing
 from tqdm import tqdm
 
+# New import for S3 support
+import boto3
+
 if platform.system() == "Darwin":
     multiprocessing.set_start_method("fork", force=True)
 
@@ -35,10 +38,10 @@ def signal_handler(signum, frame):
     if shutdown_flag:  # If ctrl-c is pressed twice, exit immediately
         logger.warning("Forced shutdown requested. Exiting immediately.")
         sys.exit(1)
-    
+
     logger.warning("Interrupt received. Shutting down gracefully... (Press Ctrl+C again to force quit)")
     shutdown_flag = True
-    
+
     if executor:
         logger.info("Cancelling pending tasks...")
         executor.shutdown(wait=False, cancel_futures=True)
@@ -47,11 +50,11 @@ def setup_logging():
     # Create logs directory if it doesn't exist
     log_dir = os.getcwd() + "/logs"
     os.makedirs(log_dir, exist_ok=True)
-    
+
     # Create a timestamp for the log file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(log_dir, f"audio_pipeline_{timestamp}.log")
-    
+
     # Configure logging format
     logging.basicConfig(
         level=logging.INFO,
@@ -111,15 +114,14 @@ def has_audio_content(audio_array, threshold_db=-60):
         
         # Calculate the percentage of samples above threshold
         non_silence = np.mean(db > threshold_db)
-        
+
         # Log the audio statistics
         logger.debug(f"Audio stats - Mean dB: {np.mean(db):.2f}, "
-                    f"Max dB: {np.max(db):.2f}, "
-                    f"Non-silence ratio: {non_silence:.2%}")
-        
+                     f"Max dB: {np.max(db):.2f}, "
+                     f"Non-silence ratio: {non_silence:.2%}")
         # Consider audio valid if at least 1% of samples are above threshold
         return non_silence > 0.01
-        
+
     except Exception as e:
         logger.error(f"Error checking audio content: {e}")
         return False
@@ -131,13 +133,13 @@ def is_valid_transcription(transcription):
     """
     if not transcription:
         return False, ""
-    
+
     # Remove punctuation and whitespace
     cleaned_text = re.sub(r'[^\w\s]', '', transcription).strip()
-    
+
     # Check if there are any words
     has_words = bool(cleaned_text and cleaned_text.split())
-    
+
     return has_words, cleaned_text
 
 def extract_metadata(filename):
@@ -152,9 +154,9 @@ def extract_metadata(filename):
     pattern = r"(?P<src_number>\+\d+)_(?P<dst_number>\+\d+)_(?P<epoch>\d+)\.wav"
     match = re.match(pattern, filename)
     if match:
-        metadata["src_number"]   = match.group("src_number")
-        metadata["dst_number"]   = match.group("dst_number")
-        metadata["call_time"]    = datetime.fromtimestamp(int(match.group("epoch")) / 1e6).isoformat()
+        metadata["src_number"] = match.group("src_number")
+        metadata["dst_number"] = match.group("dst_number")
+        metadata["call_time"] = datetime.fromtimestamp(int(match.group("epoch")) / 1e6).isoformat()
         metadata["is_us_number"] = metadata["src_number"].startswith("+1") and len(metadata["src_number"]) == 12
     else:
         metadata["call_time"] = datetime.fromtimestamp(os.path.getctime(os.path.basename(filename))).isoformat()
@@ -186,13 +188,20 @@ def preprocess_audio(file_path):
 def transcribe_and_embed_audio(audio, sampling_rate=16000):
     try:
         start_time = time.time()
-        inputs = whisper_processor(audio, sampling_rate=sampling_rate, return_tensors="pt", language="en").input_features
+        inputs = whisper_processor(audio, sampling_rate=sampling_rate, return_tensors="pt", language="en")
+        input_features = inputs.input_features
+        # Create an attention mask if one is not provided
+        attention_mask = inputs.get("attention_mask")
+        if attention_mask is None:
+            # Assuming no padding is needed; all tokens are valid
+            attention_mask = torch.ones(input_features.shape[:2], dtype=torch.long, device=input_features.device)
+
         with torch.no_grad():
-            predicted_ids = whisper_model.generate(inputs)
-            transcription = whisper_processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
-        
+            predicted_ids = whisper_model.generate(input_features, attention_mask=attention_mask)
+        transcription = whisper_processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
         elapsed_time = time.time() - start_time
         logger.info(f"Transcription completed in {elapsed_time:.2f} seconds")
+
         start_time = time.time()
         embedding = transcript_model.encode(transcription)
         elapsed_time = time.time() - start_time
@@ -216,9 +225,9 @@ def generate_audio_embeddings(audio, sampling_rate=16000):
         logger.error(f"Embedding generation failed: {e}")
         return None
 
-def process_audio_file(file_path):
+def process_audio_file(file_path, original_filename=None):
     try:
-        filename = os.path.basename(file_path)
+        filename = os.path.basename(original_filename) if original_filename else os.path.basename(file_path)
         metadata = extract_metadata(filename)
         if not metadata:
             return None
@@ -231,12 +240,12 @@ def process_audio_file(file_path):
         try:
             # Load preprocessed audio
             audio, sr = librosa.load(preprocessed_path, sr=16000)
-            
+
             # Check for audio content
             if not has_audio_content(audio):
                 logger.warning(f"Skipping {file_path}: No significant audio content detected")
                 return None
-                
+
         finally:
             # Ensure temporary file is removed even if loading fails
             if os.path.exists(preprocessed_path):
@@ -252,7 +261,7 @@ def process_audio_file(file_path):
         transcription, embedding = transcribe_and_embed_audio(audio, sampling_rate=sr)
         has_words = False
         word_count = 0
-        
+
         if transcription:
             has_words, cleaned_text = is_valid_transcription(transcription)
             if has_words:
@@ -272,7 +281,7 @@ def process_audio_file(file_path):
             "word_count": word_count,
             "processing_status": "success"
         })
-        
+
         logger.info(f"Processed {file_path} successfully - Empty audio: {not has_words}, Word count: {word_count}")
         return metadata
     except Exception as e:
@@ -281,25 +290,25 @@ def process_audio_file(file_path):
 
 def process_directory(directory, max_workers=4):
     global executor
-    
+
     all_files = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".wav")]
     total_files = len(all_files)
     processed_files = 0
     failed_files = 0
     results = []
-    
+
     logger.info(f"Starting batch processing of {total_files} files with {max_workers} workers")
-    
+
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as exec:
             executor = exec
             futures = {executor.submit(process_audio_file, path): path for path in all_files}
-            
+
             for future in tqdm(as_completed(futures), total=total_files, desc="Processing files"):
                 if shutdown_flag:
                     logger.info("Graceful shutdown initiated. Stopping processing...")
                     break
-                    
+
                 file_path = futures[future]
                 try:
                     result = future.result()
@@ -308,26 +317,87 @@ def process_directory(directory, max_workers=4):
                         processed_files += 1
                     else:
                         failed_files += 1
-                    
+
                     total_processed = processed_files + failed_files
                     logger.info(f"Progress: {total_processed}/{total_files} files "
-                              f"(Success: {processed_files}, Failed: {failed_files})")
-                    
+                                f"(Success: {processed_files}, Failed: {failed_files})")
                 except Exception as e:
                     failed_files += 1
                     logger.error(f"Error processing {file_path}: {e}")
-    
+
     except Exception as e:
         logger.error(f"Error in batch processing: {e}")
     finally:
         executor = None
-    
-    status = "completed" if not shutdown_flag else "interrupted"
-    logger.info(f"Batch processing {status}. "
-               f"Total files: {total_files}, "
-               f"Succeeded: {processed_files}, "
-               f"Failed: {failed_files}")
-    
+        status = "completed" if not shutdown_flag else "interrupted"
+        logger.info(f"Batch processing {status}. "
+                    f"Total files: {total_files}, "
+                    f"Succeeded: {processed_files}, "
+                    f"Failed: {failed_files}")
+    return results
+
+def process_s3_object(s3_client, bucket, key):
+    """
+    Downloads an S3 object to a temporary file, processes it, and cleans up.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+        local_path = temp_file.name
+    try:
+        s3_client.download_file(bucket, key, local_path)
+        logger.info(f"Downloaded {key} from bucket {bucket} to {local_path}")
+        result = process_audio_file(local_path, original_filename=key)
+        return result
+    except Exception as e:
+        logger.error(f"Error processing S3 object {key}: {e}")
+        return None
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
+
+def process_s3_bucket(bucket, prefix='', max_workers=4):
+    """
+    Lists WAV files from an S3 bucket (filtered by an optional prefix),
+    downloads each file, and processes them concurrently.
+    Uses a paginator to retrieve more than 1000 objects.
+    """
+    s3_client = boto3.client('s3')
+    paginator = s3_client.get_paginator('list_objects_v2')
+    page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefix)
+    all_keys = []
+    for page in page_iterator:
+        if 'Contents' in page:
+            all_keys.extend([obj['Key'] for obj in page['Contents'] if obj['Key'].endswith('.wav')])
+
+    total_files = len(all_keys)
+    processed_files = 0
+    failed_files = 0
+    results = []
+    logger.info(f"Starting batch processing of {total_files} files from S3 bucket {bucket} with prefix '{prefix}' using {max_workers} workers")
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as exec:
+            global executor
+            executor = exec
+            futures = {executor.submit(process_s3_object, s3_client, bucket, key): key for key in all_keys}
+            for future in tqdm(as_completed(futures), total=total_files, desc="Processing S3 files"):
+                if shutdown_flag:
+                    logger.info("Graceful shutdown initiated. Stopping processing...")
+                    break
+                key = futures[future]
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                        processed_files += 1
+                    else:
+                        failed_files += 1
+                except Exception as e:
+                    failed_files += 1
+                    logger.error(f"Error processing S3 object {key}: {e}")
+            logger.info(f"Batch processing completed for S3. Total files: {total_files}, Succeeded: {processed_files}, Failed: {failed_files}")
+    except Exception as e:
+        logger.error(f"Error in S3 batch processing: {e}")
+    finally:
+        executor = None
     return results
 
 def cleanup():
@@ -339,13 +409,18 @@ def cleanup():
 if __name__ == "__main__":
     try:
         load_dotenv()
-        input_directory = os.getenv('WAV_FILE_PATH')
+        s3_bucket = os.getenv('S3_BUCKET')
+        s3_prefix = os.getenv('S3_PREFIX', '')
         output_file = os.getenv('PROCESSED_AUDIO_FILE')
         max_workers = int(os.getenv('MAX_WORKERS', 4))
-
-        logger.info(f"Starting processing with input directory: {input_directory}")
-        results = process_directory(input_directory, max_workers=max_workers)
-
+        # If S3_BUCKET is provided, process from S3; otherwise, process local directory
+        if s3_bucket:
+            logger.info(f"Starting processing from S3 bucket: {s3_bucket} with prefix: '{s3_prefix}'")
+            results = process_s3_bucket(s3_bucket, s3_prefix, max_workers=max_workers)
+        else:
+            input_directory = os.getenv('WAV_FILE_PATH')
+            logger.info(f"Starting processing with input directory: {input_directory}")
+            results = process_directory(input_directory, max_workers=max_workers)
         if results:  # Only save results if we have any
             summary = {
                 "total_files_processed": len(results),
@@ -361,7 +436,7 @@ if __name__ == "__main__":
             logger.info(f"Processing complete. Results saved to {output_file}")
         else:
             logger.warning("No results to save")
-            
+
     except Exception as e:
         logger.error(f"Fatal error in main execution: {e}")
     finally:
