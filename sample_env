@@ -16,7 +16,7 @@ S3_PREFIX=<s3_prefix>
 WAV_FILE_PATH=<location_of_wav_files>
 
 # This is the file where audio_pipeline.py will output to in JSON format
-PROCESSED_AUDIO_FLE=<location_of_processed_audio_file>
+PROCESSED_AUDIO_FILE=<location_of_processed_audio_file>
 # This is the file where cluster_audio.py will output to in JSON format
 CLUSTERED_AUDIO_FILE=<location_of_clustered_data_file>
 
